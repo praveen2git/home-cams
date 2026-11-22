@@ -10,6 +10,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -121,6 +122,9 @@ fun CamPlayer(
     }
     val context = LocalContext.current
     var error by remember(uri) { mutableStateOf<String?>(null) }
+    // Counts the errors in a row. It restarts the retry timer even when the same error text comes again.
+    var fails by remember(uri) { mutableIntStateOf(0) }
+    var decoderError by remember(uri) { mutableStateOf(false) }
     val player = remember(uri) {
         // Short waits: a player stuck on a dead camera must not freeze the remote when it is released.
         val builder = ExoPlayer.Builder(context).setReleaseTimeoutMs(STUCK_WAIT_MS).setDetachSurfaceTimeoutMs(STUCK_WAIT_MS)
@@ -142,10 +146,16 @@ fun CamPlayer(
             addListener(object : Player.Listener {
                 override fun onPlayerError(e: PlaybackException) {
                     error = errorText(e)
+                    // Every 4xxx code is a decoder error.
+                    decoderError = e.errorCode / 1000 == 4
+                    fails++
                 }
 
                 override fun onPlaybackStateChanged(state: Int) {
-                    if (state == Player.STATE_READY) error = null
+                    if (state == Player.STATE_READY) {
+                        error = null
+                        fails = 0
+                    }
                 }
             })
             prepare()
@@ -153,9 +163,10 @@ fun CamPlayer(
         }
     }
     if (error != null) {
-        // Full screen retries fast: the TV can take its decoder back while the wall's players are still closing.
-        LaunchedEffect(player, error) {
-            delay(if (tile) 15_000 else 2_000)
+        // A decoder error is mostly a player on the last screen that is still closing, so the first
+        // tries come fast. After that a tile slows down, or its retries would disturb the tiles that play.
+        LaunchedEffect(player, fails) {
+            delay(if (!tile || (decoderError && fails <= 3)) 2_000 else 15_000)
             player.prepare()
         }
     }
