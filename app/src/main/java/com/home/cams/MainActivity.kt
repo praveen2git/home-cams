@@ -17,6 +17,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import com.home.cams.sources.Brand
 import com.home.cams.sources.Layouts
 import com.home.cams.sources.Source
 import com.home.cams.sources.Wall
@@ -75,6 +76,7 @@ class MainActivity : ComponentActivity() {
         val app = application as HomeCamsApp
         val config = app.store.config
         val cams = remember(config.sources) { config.sources.cams() }
+        val scope = rememberCoroutineScope()
         val wall = Wall(cams.size, config.layout, selected.coerceIn(0, (cams.size - 1).coerceAtLeast(0)))
 
         LaunchedEffect(Unit) {
@@ -117,6 +119,26 @@ class MainActivity : ComponentActivity() {
                     app.store.update { c ->
                         val at = c.sources.indexOfFirst { it.id == saved.id }
                         c.copy(sources = if (at < 0) c.sources + saved else c.sources.toMutableList().also { it[at] = saved })
+                    }
+                    // Cameras in one home mostly share a login. Typing it once fills every found camera
+                    // that still has none. A camera that refuses it just stays without a login.
+                    if (saved.brand == Brand.ONVIF && saved.user.isNotEmpty()) {
+                        app.store.config.sources
+                            .filter { it.brand == Brand.ONVIF && it.id != saved.id && it.user.isEmpty() && it.mainUri.isEmpty() }
+                            .forEach { other ->
+                                val xaddr = other.onvifXaddr ?: return@forEach
+                                scope.launch {
+                                    val info = runCatching { app.onvif.describe(xaddr, saved.user, saved.pass) }.getOrNull() ?: return@launch
+                                    app.store.update { c ->
+                                        c.copy(sources = c.sources.map {
+                                            if (it.id != other.id) it else it.copy(
+                                                user = saved.user, pass = saved.pass, mainUri = info.mainUri, subUri = info.subUri,
+                                                ptzXaddr = info.ptzXaddr, ptzToken = info.ptzToken
+                                            )
+                                        })
+                                    }
+                                }
+                            }
                     }
                     screen = Screen.Sources
                 },

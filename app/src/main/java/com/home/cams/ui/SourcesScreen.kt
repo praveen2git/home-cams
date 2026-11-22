@@ -70,7 +70,7 @@ fun SourcesScreen(store: ConfigStore, onvif: OnvifClient, onEdit: (Source?) -> U
                     when {
                         found.isEmpty() -> "No camera answered. Add it by IP address instead."
                         added.isEmpty() -> "Found ${found.size}. All are already in the list."
-                        else -> "Found ${found.size}, added ${added.size}. Open each new one to enter its login."
+                        else -> "Found ${found.size}, added ${added.size}. Open one and enter its login. The others get the same login."
                     }
                 }.getOrElse { "The search failed: ${it.message}" }
                 searching = false

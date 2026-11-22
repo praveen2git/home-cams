@@ -27,6 +27,8 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
+import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import androidx.media3.exoplayer.rtsp.RtspMediaSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -66,6 +68,15 @@ private object QuickConnect : SocketFactory() {
         createSocket(address, port)
 }
 
+/**
+ * Software decoders first. Tiles that all ask for a hardware decoder make a cheap TV take decoders
+ * back from the tiles that already play, so the tiles past the first few never ask for one.
+ */
+@OptIn(UnstableApi::class)
+private val SoftwareFirst = MediaCodecSelector { mime, secure, tunneling ->
+    MediaCodecUtil.getDecoderInfos(mime, secure, tunneling).sortedByDescending { it.softwareOnly }
+}
+
 /** Why a picture failed, in words the viewer can act on. */
 fun cameraErrorText(error: PlaybackException): String {
     val causes = generateSequence(error as Throwable?) { it.cause }.toList()
@@ -97,6 +108,8 @@ fun CamPlayer(
     uri: String,
     tile: Boolean,
     modifier: Modifier = Modifier,
+    /** False for a tile that must leave the hardware decoders to others. */
+    hardware: Boolean = true,
     errorText: (PlaybackException) -> String = ::cameraErrorText,
     onPlayer: (ExoPlayer?) -> Unit = {}
 ) {
@@ -111,8 +124,10 @@ fun CamPlayer(
     val player = remember(uri) {
         // Short waits: a player stuck on a dead camera must not freeze the remote when it is released.
         val builder = ExoPlayer.Builder(context).setReleaseTimeoutMs(STUCK_WAIT_MS).setDetachSurfaceTimeoutMs(STUCK_WAIT_MS)
-            // Cheap TVs have only 2 hardware decoders. The rest of the tiles fall back to the software one.
-            .setRenderersFactory(DefaultRenderersFactory(context).setEnableDecoderFallback(true))
+            .setRenderersFactory(
+                DefaultRenderersFactory(context).setEnableDecoderFallback(true)
+                    .setMediaCodecSelector(if (hardware) MediaCodecSelector.DEFAULT else SoftwareFirst)
+            )
         if (tile) builder.setLoadControl(DefaultLoadControl.Builder().setBufferDurationsMs(500, 2_000, 250, 500).build())
         builder.build().apply {
             if (tile) volume = 0f

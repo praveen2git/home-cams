@@ -25,6 +25,9 @@ import androidx.compose.ui.unit.dp
 import com.home.cams.sources.Cam
 import com.home.cams.sources.Wall
 
+// shortcut: 2 is what a cheap TV stick has, read the real count from the TV if stronger TVs stutter.
+private const val HARDWARE_TILES = 2
+
 /**
  * The camera wall. Each tile plays the sub stream. Only the tiles on the current page have a
  * player, so the live tile cap holds. Arrow keys move the selection and page through the cameras.
@@ -81,13 +84,14 @@ fun WallScreen(
             for (row in 0 until rows) {
                 Row(Modifier.fillMaxWidth().weight(1f), Arrangement.spacedBy(6.dp)) {
                     for (col in 0 until wall.columns) {
-                        val index = shown.getOrNull(row * wall.columns + col)
+                        val slot = row * wall.columns + col
+                        val index = shown.getOrNull(slot)
                         // Empty boxes keep the tile sizes equal on a short last page.
                         Box(Modifier.weight(1f).fillMaxHeight()) {
                             if (index != null) {
                                 val cam = cams[index]
                                 // Keyed by camera, so a tile that stays on screen keeps its player.
-                                key(cam.id) { Tile(cam, index == wall.selected) }
+                                key(cam.id) { Tile(cam, index == wall.selected, hardware = slot < HARDWARE_TILES) }
                             }
                         }
                     }
@@ -107,9 +111,9 @@ fun WallScreen(
 }
 
 @Composable
-private fun Tile(cam: Cam, selected: Boolean) {
+private fun Tile(cam: Cam, selected: Boolean, hardware: Boolean) {
     Box(Modifier.fillMaxSize().border(3.dp, if (selected) Accent else Color.Transparent).padding(3.dp)) {
-        CamPlayer(cam.liveUri(sub = true), tile = true, modifier = Modifier.fillMaxSize())
+        CamPlayer(cam.liveUri(sub = true), tile = true, modifier = Modifier.fillMaxSize(), hardware = hardware)
         Label(
             cam.name,
             Modifier.align(Alignment.BottomStart).background(Scrim).padding(horizontal = 8.dp, vertical = 3.dp),

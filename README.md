@@ -11,7 +11,7 @@ Design: [docs/superpowers/specs/2026-11-12-home-cams-design.md](docs/superpowers
 - **Full screen:** Up/Down changes camera. OK starts PTZ on a camera that can move. Left opens playback on an NVR that has it. Back returns to the wall.
 - **PTZ:** hold an arrow to move, let go to stop. Channel up/down or FF/Rewind zooms.
 - **Playback:** pick a camera in the Playback tab, then a day (last 14 days) and a time, press OK. Left/Right jumps 1 minute, Rewind/FF jumps 10 minutes.
-- **Settings > Sources:** add an NVR (type, IP, port, login, channels), find ONVIF cameras, or add an RTSP address.
+- **Settings > Sources:** add an NVR (type, IP, port, login, channels), find ONVIF cameras, or add an RTSP address. The login typed on one found camera is used for the other found cameras too.
 
 NVR types are numbered, not named. If the wall shows no video, try the next type.
 
