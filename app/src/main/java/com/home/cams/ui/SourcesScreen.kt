@@ -153,7 +153,11 @@ fun EditSourceScreen(initial: Source?, onvif: OnvifClient, onSave: (Source) -> U
         }
         TextRow("Name", name) { name = it }
         if (brand == Brand.RTSP) {
-            TextRow("RTSP address", url, keyboard = KeyboardType.Uri, start = "rtsp://$lan") { url = it }
+            // A whole example in the exact format: changing a few characters beats typing it all.
+            TextRow(
+                "RTSP address", url, keyboard = KeyboardType.Uri,
+                start = "rtsp://${lan.ifEmpty { "192.168.1." }}200:554/chID=1&streamType=main"
+            ) { url = it }
         } else {
             TextRow(if (brand == Brand.ONVIF) "IP address (add :port if not 80)" else "IP address", host, keyboard = KeyboardType.Uri, start = lan) { host = it }
             if (brand.isNvr) TextRow("RTSP port", port, keyboard = KeyboardType.Number) { port = it }
