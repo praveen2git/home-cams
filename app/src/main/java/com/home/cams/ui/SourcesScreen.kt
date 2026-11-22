@@ -115,7 +115,7 @@ fun EditSourceScreen(initial: Source?, onvif: OnvifClient, onSave: (Source) -> U
                     status = "Enter an address that starts with rtsp://"
                     return
                 }
-                onSave(base.copy(host = hostOf(url), user = "", pass = "", mainUri = url, subUri = url))
+                onSave(base.copy(host = hostOf(url), mainUri = url, subUri = url))
             }
             host.isBlank() -> status = "Enter the IP address."
             brand.isNvr -> {
@@ -157,10 +157,11 @@ fun EditSourceScreen(initial: Source?, onvif: OnvifClient, onSave: (Source) -> U
         } else {
             TextRow(if (brand == Brand.ONVIF) "IP address (add :port if not 80)" else "IP address", host, keyboard = KeyboardType.Uri, start = lan) { host = it }
             if (brand.isNvr) TextRow("RTSP port", port, keyboard = KeyboardType.Number) { port = it }
-            TextRow("Username", user) { user = it }
-            TextRow("Password", pass, password = true) { pass = it }
-            if (brand.isNvr) TextRow("Channels", channels, keyboard = KeyboardType.Number) { channels = it }
         }
+        // The login is put into an RTSP address when it plays, so it is never typed inside the address.
+        TextRow("Username", user) { user = it }
+        TextRow("Password", pass, password = true) { pass = it }
+        if (brand.isNvr) TextRow("Channels", channels, keyboard = KeyboardType.Number) { channels = it }
         MenuRow("Save", if (busy) "Please wait..." else "Press OK") { if (!busy) save() }
         if (initial != null) {
             MenuRow("Delete", if (confirmDelete) "Press OK again to delete" else "Press OK") {

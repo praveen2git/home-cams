@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -23,6 +24,12 @@ import kotlinx.coroutines.sync.withLock
 import java.time.LocalDateTime
 
 private const val PTZ_SPEED = 0.5f
+
+/**
+ * Cameras whose main stream this TV could not decode (a cheap TV stops at 1920x1080, many cameras send more).
+ * They play the sub stream in full screen until the app restarts.
+ */
+private val smallOnly = mutableStateListOf<String>()
 
 /** Pan, tilt and zoom speeds for a remote key in PTZ mode, or null for other keys. */
 private fun ptzMove(keyCode: Int): Triple<Float, Float, Float>? = when (keyCode) {
@@ -91,7 +98,12 @@ fun FullScreen(
         }
         true
     }) {
-        CamPlayer(cam.liveUri(sub = false), tile = false, modifier = Modifier.fillMaxSize())
+        val small = cam.id in smallOnly
+        CamPlayer(cam.liveUri(sub = small), tile = false, modifier = Modifier.fillMaxSize(), errorText = { e ->
+            // Every 4xxx code is a decoder error.
+            if (!small && e.errorCode / 1000 == 4) smallOnly += cam.id
+            cameraErrorText(e)
+        })
         val hint = if (ptz) {
             "PTZ   |   Arrows: move   |   Channel or FF/Rewind: zoom   |   Back: leave PTZ"
         } else {
@@ -99,7 +111,8 @@ fun FullScreen(
                 "Up/Down: next camera",
                 "OK: PTZ".takeIf { cam.hasPtz },
                 "Left: playback".takeIf { canPlayBack },
-                "Back: wall"
+                "Back: wall",
+                "Small picture: the large one is too big for this TV".takeIf { small }
             ).joinToString("   |   ")
         }
         Label(
