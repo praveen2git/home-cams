@@ -9,9 +9,9 @@ import org.json.JSONObject
 
 /** Wall layouts, by number of tiles. A low-end TV can only decode a few streams at once, hence the cap. */
 object Layouts {
-    val ALL = listOf(1, 4, 6, 9)
+    val ALL = listOf(1, 2, 4, 6, 9)
     fun allowed(cap: Int) = ALL.filter { it <= cap }.ifEmpty { listOf(1) }
-    fun columns(layout: Int) = when (layout) { 1 -> 1; 4 -> 2; else -> 3 }
+    fun columns(layout: Int) = when (layout) { 1 -> 1; 2, 4 -> 2; else -> 3 }
 }
 
 data class Config(

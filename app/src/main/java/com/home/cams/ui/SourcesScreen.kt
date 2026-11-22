@@ -19,9 +19,21 @@ import com.home.cams.sources.ConfigStore
 import com.home.cams.sources.Source
 import com.home.cams.sources.hostOf
 import kotlinx.coroutines.launch
+import java.net.Inet4Address
+import java.net.NetworkInterface
 import java.util.UUID
 
 private const val MAX_CHANNELS = 64
+
+/**
+ * The start of this TV's own address, such as "192.168.1.". Cameras are nearly always on the same
+ * network, so the viewer types only the last number.
+ * shortcut: assumes the usual home network where only the last number differs, the text stays editable.
+ */
+private fun lanPrefix(): String = runCatching {
+    NetworkInterface.getNetworkInterfaces().asSequence().flatMap { it.inetAddresses.asSequence() }
+        .first { it is Inet4Address && it.isSiteLocalAddress }.hostAddress!!.substringBeforeLast('.') + "."
+}.getOrDefault("")
 
 /** Cameras from an ONVIF search that are not in [known] yet, named by the last part of their IP. */
 private suspend fun newOnvifSources(found: List<String>, known: List<Source>, onvif: OnvifClient): List<Source> =
@@ -86,6 +98,7 @@ fun EditSourceScreen(initial: Source?, onvif: OnvifClient, onSave: (Source) -> U
     var status by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
+    val lan = remember { lanPrefix() }
     val first = remember { FocusRequester() }
     LaunchedEffect(Unit) { first.requestFocus() }
 
@@ -140,9 +153,9 @@ fun EditSourceScreen(initial: Source?, onvif: OnvifClient, onSave: (Source) -> U
         }
         TextRow("Name", name) { name = it }
         if (brand == Brand.RTSP) {
-            TextRow("RTSP address", url, keyboard = KeyboardType.Uri) { url = it }
+            TextRow("RTSP address", url, keyboard = KeyboardType.Uri, start = "rtsp://$lan") { url = it }
         } else {
-            TextRow(if (brand == Brand.ONVIF) "IP address (add :port if not 80)" else "IP address", host, keyboard = KeyboardType.Uri) { host = it }
+            TextRow(if (brand == Brand.ONVIF) "IP address (add :port if not 80)" else "IP address", host, keyboard = KeyboardType.Uri, start = lan) { host = it }
             if (brand.isNvr) TextRow("RTSP port", port, keyboard = KeyboardType.Number) { port = it }
             TextRow("Username", user) { user = it }
             TextRow("Password", pass, password = true) { pass = it }

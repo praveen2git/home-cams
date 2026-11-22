@@ -88,12 +88,13 @@ class SourceTest {
 
     @Test
     fun tileCapLimitsTheLayouts() {
-        assertEquals(listOf(1, 4), Layouts.allowed(4))
-        assertEquals(listOf(1, 4, 6, 9), Layouts.allowed(9))
+        assertEquals(listOf(1, 2, 4), Layouts.allowed(4))
+        assertEquals(listOf(1, 2, 4, 6, 9), Layouts.allowed(9))
+        assertEquals(Config(tileCap = 2, layout = 2), Config(tileCap = 3, layout = 4).fixed())
         assertEquals(Config(tileCap = 4, layout = 4), Config(tileCap = 4, layout = 9).fixed())
         assertEquals(Config(tileCap = 6, layout = 6), Config(tileCap = 7, layout = 6).fixed())
         assertEquals(Config(tileCap = 1, layout = 1), Config(tileCap = 0, layout = 0).fixed())
-        assertEquals(listOf(1, 2, 3, 3), Layouts.ALL.map { Layouts.columns(it) })
+        assertEquals(listOf(1, 2, 2, 3, 3), Layouts.ALL.map { Layouts.columns(it) })
     }
 
     @Test

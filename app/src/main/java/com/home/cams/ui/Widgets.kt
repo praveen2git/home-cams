@@ -40,11 +40,13 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -125,10 +127,12 @@ fun TextRow(
     modifier: Modifier = Modifier,
     password: Boolean = false,
     keyboard: KeyboardType = KeyboardType.Text,
+    /** What an empty box starts with, so the viewer types less. */
+    start: String = "",
     onValue: (String) -> Unit
 ) {
     var editing by remember { mutableStateOf(false) }
-    var text by remember { mutableStateOf("") }
+    var text by remember { mutableStateOf(TextFieldValue()) }
     val rowFocus = remember { FocusRequester() }
     val fieldFocus = remember { FocusRequester() }
     val ime = LocalSoftwareKeyboardController.current
@@ -143,7 +147,8 @@ fun TextRow(
         else -> value
     }
     MenuRow(label, shown, modifier.focusRequester(rowFocus)) {
-        text = value
+        // The cursor goes to the end, or typing would land in front of the old text.
+        text = value.ifEmpty { start }.let { TextFieldValue(it, TextRange(it.length)) }
         editing = true
     }
     if (editing) {
@@ -164,7 +169,7 @@ fun TextRow(
                 keyboardType = if (password) KeyboardType.Password else keyboard
             ),
             keyboardActions = KeyboardActions(onDone = {
-                onValue(if (password) text else text.trim())
+                onValue(if (password) text.text else text.text.trim())
                 close()
             }),
             modifier = Modifier

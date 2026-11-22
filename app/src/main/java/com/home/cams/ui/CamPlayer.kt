@@ -25,6 +25,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.rtsp.RtspMediaSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -109,6 +110,8 @@ fun CamPlayer(
     val player = remember(uri) {
         // Short waits: a player stuck on a dead camera must not freeze the remote when it is released.
         val builder = ExoPlayer.Builder(context).setReleaseTimeoutMs(STUCK_WAIT_MS).setDetachSurfaceTimeoutMs(STUCK_WAIT_MS)
+            // Cheap TVs have only 2 hardware decoders. The rest of the tiles fall back to the software one.
+            .setRenderersFactory(DefaultRenderersFactory(context).setEnableDecoderFallback(true))
         if (tile) builder.setLoadControl(DefaultLoadControl.Builder().setBufferDurationsMs(500, 2_000, 250, 500).build())
         builder.build().apply {
             if (tile) volume = 0f

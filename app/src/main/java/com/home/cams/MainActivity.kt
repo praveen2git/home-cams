@@ -136,7 +136,7 @@ class MainActivity : ComponentActivity() {
             }
             MenuRow(
                 "Wall layout",
-                when (config.layout) { 1 -> "1 camera"; 4 -> "2 x 2"; 6 -> "3 x 2"; else -> "3 x 3" }
+                when (config.layout) { 1 -> "1 camera"; 2 -> "2 side by side"; 4 -> "2 x 2"; 6 -> "3 x 2"; else -> "3 x 3" }
             ) {
                 app.store.update { it.copy(layout = next(Layouts.allowed(it.tileCap), it.layout)) }
             }
