@@ -125,6 +125,17 @@ fun CamPlayer(
     // Counts the errors in a row. It restarts the retry timer even when the same error text comes again.
     var fails by remember(uri) { mutableIntStateOf(0) }
     var decoderError by remember(uri) { mutableStateOf(false) }
+    // False until the first picture, and again after an error.
+    var ready by remember(uri) { mutableStateOf(false) }
+    var dots by remember { mutableIntStateOf(0) }
+    if (!ready) {
+        LaunchedEffect(Unit) {
+            while (true) {
+                delay(400)
+                dots = (dots + 1) % 4
+            }
+        }
+    }
     val player = remember(uri) {
         // Short waits: a player stuck on a dead camera must not freeze the remote when it is released.
         val builder = ExoPlayer.Builder(context).setReleaseTimeoutMs(STUCK_WAIT_MS).setDetachSurfaceTimeoutMs(STUCK_WAIT_MS)
@@ -148,6 +159,7 @@ fun CamPlayer(
                     error = errorText(e)
                     // Every 4xxx code is a decoder error.
                     decoderError = e.errorCode / 1000 == 4
+                    ready = false
                     fails++
                 }
 
@@ -155,6 +167,7 @@ fun CamPlayer(
                     if (state == Player.STATE_READY) {
                         error = null
                         fails = 0
+                        ready = true
                     }
                 }
             })
@@ -185,7 +198,13 @@ fun CamPlayer(
             update = { it.player = player },
             modifier = Modifier.fillMaxSize()
         )
-        error?.let {
+        // The quick retries after a decoder error mostly work, so they show as loading, not as an error.
+        val text = when {
+            ready -> null
+            error == null || (decoderError && fails <= 3) -> "Loading" + ".".repeat(dots)
+            else -> error
+        }
+        text?.let {
             Label(it, Modifier.background(Scrim).padding(12.dp), size = 14, align = TextAlign.Center)
         }
     }
