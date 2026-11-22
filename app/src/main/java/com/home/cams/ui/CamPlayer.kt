@@ -72,6 +72,7 @@ fun cameraErrorText(error: PlaybackException): String {
     val text = causes.joinToString(" ") { it.message.orEmpty() }
     return when {
         text.contains("401") || text.contains("Unauthorized", true) -> "Wrong camera username or password"
+        error.errorCode == PlaybackException.ERROR_CODE_DECODING_RESOURCES_RECLAIMED -> "The TV took the video decoder back. Trying again..."
         error.errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED ||
             error.errorCode == PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED -> "No free video decoder on this TV"
         error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
@@ -87,8 +88,8 @@ fun cameraErrorText(error: PlaybackException): String {
  * One player on a SurfaceView, released when it leaves the screen. A failure shows its own reason
  * and never touches the other players.
  *
- * [tile] is the low-end TV mode for the wall: muted, with a small buffer. It also retries, so a
- * camera that reboots comes back on its own.
+ * [tile] is the low-end TV mode for the wall: muted, with a small buffer. Every player retries after
+ * an error, so a camera that reboots comes back on its own.
  */
 @OptIn(UnstableApi::class)
 @Composable
@@ -136,9 +137,10 @@ fun CamPlayer(
             playWhenReady = true
         }
     }
-    if (tile && error != null) {
+    if (error != null) {
+        // Full screen retries fast: the TV can take its decoder back while the wall's players are still closing.
         LaunchedEffect(player, error) {
-            delay(15_000)
+            delay(if (tile) 15_000 else 2_000)
             player.prepare()
         }
     }

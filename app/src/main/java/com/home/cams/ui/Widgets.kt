@@ -81,15 +81,63 @@ fun KeyBox(modifier: Modifier = Modifier, onKey: (KeyEvent) -> Boolean, content:
     Box(modifier.fillMaxSize().onPreviewKeyEvent(onKey).focusRequester(focus).focusable()) { content() }
 }
 
-/** A titled page of rows, with TV overscan padding. */
+/** The three top-level places. */
+enum class Tab(val label: String) { LIVE("Live"), PLAYBACK("Playback"), SETTINGS("Settings") }
+
+/**
+ * The tab strip on top of every top-level screen. With [onTab] the tabs take focus and OK opens one.
+ * Without it the screen handles the keys itself and shows where the remote is through [marked].
+ * [focus] goes on the current tab, for a page that has no row to focus.
+ */
 @Composable
-fun Page(title: String, status: String? = null, content: @Composable ColumnScope.() -> Unit) {
+fun TabBar(
+    current: Tab,
+    modifier: Modifier = Modifier,
+    marked: Tab? = null,
+    focus: FocusRequester? = null,
+    onTab: ((Tab) -> Unit)? = null
+) {
+    val shape = RoundedCornerShape(8.dp)
+    Row(modifier, Arrangement.spacedBy(8.dp)) {
+        Tab.entries.forEach { tab ->
+            var focused by remember { mutableStateOf(false) }
+            val on = focused || marked == tab
+            var m: Modifier = Modifier
+            if (tab == current && focus != null) m = m.focusRequester(focus)
+            if (onTab != null) {
+                m = m.onFocusChanged { focused = it.isFocused }
+                    .clickable(remember { MutableInteractionSource() }, indication = null) { onTab(tab) }
+            }
+            Label(
+                tab.label,
+                m.background(if (on) RowFillFocused else Color.Transparent, shape)
+                    .border(2.dp, if (on) Accent else Color.Transparent, shape)
+                    .padding(horizontal = 18.dp, vertical = 6.dp),
+                size = 16,
+                color = if (tab == current) Accent else TextMid,
+                weight = if (tab == current) FontWeight.SemiBold else FontWeight.Normal
+            )
+        }
+    }
+}
+
+/** A titled page of rows, with TV overscan padding. A top-level page passes its [tab] to show the tab strip. */
+@Composable
+fun Page(
+    title: String,
+    status: String? = null,
+    tab: Tab? = null,
+    tabFocus: FocusRequester? = null,
+    onTab: (Tab) -> Unit = {},
+    content: @Composable ColumnScope.() -> Unit
+) {
     Box(Modifier.fillMaxSize().background(Background), contentAlignment = Alignment.TopCenter) {
         Column(
             Modifier.widthIn(max = 760.dp).fillMaxWidth().padding(horizontal = 48.dp, vertical = 32.dp)
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            if (tab != null) TabBar(tab, focus = tabFocus, onTab = onTab)
             Label(title, size = 26, color = TextHigh, weight = FontWeight.SemiBold)
             Label(status ?: " ", size = 15, color = Accent)
             Spacer(Modifier.height(4.dp))

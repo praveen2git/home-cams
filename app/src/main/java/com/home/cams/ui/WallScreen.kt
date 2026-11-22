@@ -12,7 +12,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -32,30 +36,46 @@ fun WallScreen(
     note: String?,
     onSelect: (Int) -> Unit,
     onOpen: () -> Unit,
-    onSettings: () -> Unit
+    onTab: (Tab) -> Unit
 ) {
+    // Not null while the remote is on the tab strip.
+    var marked by remember { mutableStateOf<Tab?>(null) }
     KeyBox(Modifier.background(Background), onKey = { e ->
         if (e.nativeKeyEvent.action != KeyEvent.ACTION_DOWN) return@KeyBox false
-        when (e.nativeKeyEvent.keyCode) {
+        val code = e.nativeKeyEvent.keyCode
+        val tab = marked
+        if (tab != null) {
+            when (code) {
+                KeyEvent.KEYCODE_DPAD_LEFT -> marked = Tab.entries[(tab.ordinal - 1).coerceAtLeast(0)]
+                KeyEvent.KEYCODE_DPAD_RIGHT -> marked = Tab.entries[(tab.ordinal + 1).coerceAtMost(Tab.entries.size - 1)]
+                KeyEvent.KEYCODE_DPAD_DOWN -> marked = null
+                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER ->
+                    if (tab == Tab.LIVE) marked = null else onTab(tab)
+                else -> return@KeyBox false
+            }
+            return@KeyBox true
+        }
+        when (code) {
             KeyEvent.KEYCODE_DPAD_LEFT -> onSelect(wall.move(-1).selected)
             KeyEvent.KEYCODE_DPAD_RIGHT -> onSelect(wall.move(1).selected)
-            KeyEvent.KEYCODE_DPAD_UP -> if (wall.onTopRow) onSettings() else onSelect(wall.move(-wall.columns).selected)
+            KeyEvent.KEYCODE_DPAD_UP -> if (wall.onTopRow) marked = Tab.LIVE else onSelect(wall.move(-wall.columns).selected)
             KeyEvent.KEYCODE_DPAD_DOWN -> onSelect(wall.move(wall.columns).selected)
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER ->
-                if (cams.isEmpty()) onSettings() else onOpen()
-            KeyEvent.KEYCODE_MENU -> onSettings()
+                if (cams.isEmpty()) onTab(Tab.SETTINGS) else onOpen()
+            KeyEvent.KEYCODE_MENU -> onTab(Tab.SETTINGS)
             else -> return@KeyBox false
         }
         true
     }) {
-        if (cams.isEmpty()) {
-            Column(Modifier.fillMaxSize(), Arrangement.Center, Alignment.CenterHorizontally) {
-                Label("No cameras yet", size = 28, color = TextHigh, weight = FontWeight.SemiBold)
-                Label("Press OK to open Settings and add an NVR or a camera.", Modifier.padding(top = 8.dp), size = 18)
-            }
-            return@KeyBox
-        }
         Column(Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 18.dp), Arrangement.spacedBy(6.dp)) {
+            TabBar(Tab.LIVE, marked = marked)
+            if (cams.isEmpty()) {
+                Column(Modifier.fillMaxSize(), Arrangement.Center, Alignment.CenterHorizontally) {
+                    Label("No cameras yet", size = 28, color = TextHigh, weight = FontWeight.SemiBold)
+                    Label("Press OK to open Settings and add an NVR or a camera.", Modifier.padding(top = 8.dp), size = 18)
+                }
+                return@KeyBox
+            }
             val rows = wall.layout / wall.columns
             val shown = wall.visible.toList()
             for (row in 0 until rows) {
@@ -77,7 +97,7 @@ fun WallScreen(
                 listOfNotNull(
                     "Page ${wall.page} of ${wall.pages}",
                     "OK: full screen",
-                    "Up from the top row: Settings",
+                    "Up from the top row: tabs",
                     note
                 ).joinToString("   |   "),
                 size = 12, color = TextLow

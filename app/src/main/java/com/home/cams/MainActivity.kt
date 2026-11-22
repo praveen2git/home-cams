@@ -26,7 +26,9 @@ import com.home.cams.ui.FullScreen
 import com.home.cams.ui.MenuRow
 import com.home.cams.ui.Page
 import com.home.cams.ui.PlaybackScreen
+import com.home.cams.ui.PlaybackTab
 import com.home.cams.ui.SourcesScreen
+import com.home.cams.ui.Tab
 import com.home.cams.ui.WallScreen
 import com.home.cams.update.Update
 import kotlinx.coroutines.launch
@@ -34,7 +36,9 @@ import kotlinx.coroutines.launch
 private sealed interface Screen {
     data object Wall : Screen
     data object Full : Screen
-    data object Playback : Screen
+    data object PlaybackList : Screen
+    /** [back] is where Back returns to: the Playback tab or the full screen camera. */
+    data class Playback(val back: Screen) : Screen
     data object Settings : Screen
     data object Sources : Screen
     data class Edit(val source: Source?) : Screen
@@ -80,8 +84,8 @@ class MainActivity : ComponentActivity() {
         }
 
         BackHandler(enabled = screen != Screen.Wall) {
-            screen = when (screen) {
-                Screen.Playback -> Screen.Full
+            screen = when (val now = screen) {
+                is Screen.Playback -> now.back
                 Screen.Sources -> Screen.Settings
                 is Screen.Edit -> Screen.Sources
                 else -> Screen.Wall
@@ -94,13 +98,16 @@ class MainActivity : ComponentActivity() {
                 note = update?.let { "Update ${it.version} is ready in Settings" },
                 onSelect = { selected = it },
                 onOpen = { screen = Screen.Full },
-                onSettings = { screen = Screen.Settings }
+                onTab = ::open
             )
             // A camera can vanish while it is open (its source was deleted): go back to the wall.
-            Screen.Full, Screen.Playback -> if (cams.isEmpty()) SideEffect { screen = Screen.Wall } else if (s == Screen.Full) {
-                FullScreen(cams, wall.selected, app.onvif, onIndex = { selected = it }, onPlayback = { screen = Screen.Playback })
-            } else {
-                PlaybackScreen(cams[wall.selected])
+            Screen.Full -> if (cams.isEmpty()) SideEffect { screen = Screen.Wall } else {
+                FullScreen(cams, wall.selected, app.onvif, onIndex = { selected = it }, onPlayback = { screen = Screen.Playback(Screen.Full) })
+            }
+            is Screen.Playback -> if (cams.isEmpty()) SideEffect { screen = Screen.Wall } else PlaybackScreen(cams[wall.selected])
+            Screen.PlaybackList -> PlaybackTab(cams, ::open) {
+                selected = it
+                screen = Screen.Playback(Screen.PlaybackList)
             }
             Screen.Settings -> SettingsScreen(app)
             Screen.Sources -> SourcesScreen(app.store, app.onvif, onEdit = { screen = Screen.Edit(it) })
@@ -121,6 +128,14 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun open(tab: Tab) {
+        screen = when (tab) {
+            Tab.LIVE -> Screen.Wall
+            Tab.PLAYBACK -> Screen.PlaybackList
+            Tab.SETTINGS -> Screen.Settings
+        }
+    }
+
     @Composable
     private fun SettingsScreen(app: HomeCamsApp) {
         val config = app.store.config
@@ -129,7 +144,7 @@ class MainActivity : ComponentActivity() {
         LaunchedEffect(Unit) { first.requestFocus() }
         fun next(options: List<Int>, current: Int) = options[(options.indexOf(current) + 1) % options.size]
 
-        Page("Settings") {
+        Page("Settings", tab = Tab.SETTINGS, onTab = ::open) {
             MenuRow("Sources", "${config.sources.size} added", Modifier.focusRequester(first)) { screen = Screen.Sources }
             MenuRow("Live tile cap", "${config.tileCap}   (lower it if tiles fail on this TV)") {
                 app.store.update { it.copy(tileCap = next(Layouts.ALL, it.tileCap)) }

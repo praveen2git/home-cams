@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -15,6 +16,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -38,6 +41,27 @@ fun pickedTime(today: LocalDate, daysBack: Int, minute: Int): LocalDateTime =
 /** Where a jump of [minutes] lands, counted from what is on screen now. It never goes past [now]. */
 fun jumpTime(start: LocalDateTime, positionMs: Long, minutes: Long, now: LocalDateTime): LocalDateTime =
     minOf(start.plusSeconds(positionMs / 1000).plusMinutes(minutes), now.minusMinutes(1))
+
+/** The Playback tab: the cameras that have recordings. [onOpen] gets the camera's place in [cams]. */
+@Composable
+fun PlaybackTab(cams: List<Cam>, onTab: (Tab) -> Unit, onOpen: (Int) -> Unit) {
+    val list = remember(cams) { cams.withIndex().filter { it.value.playbackUri(LocalDateTime.now()) != null } }
+    val first = remember { FocusRequester() }
+    LaunchedEffect(Unit) { first.requestFocus() }
+    Page(
+        "Playback",
+        if (list.isEmpty()) "No camera here has recordings. Playback needs an NVR that supports it. Add one in Settings > Sources."
+        else "Pick a camera, then a day and a time.",
+        tab = Tab.PLAYBACK,
+        // With no camera to focus, the remote starts on the tab strip.
+        tabFocus = first.takeIf { list.isEmpty() },
+        onTab = onTab
+    ) {
+        list.forEachIndexed { i, (index, cam) ->
+            MenuRow(cam.name, "Press OK", if (i == 0) Modifier.focusRequester(first) else Modifier) { onOpen(index) }
+        }
+    }
+}
 
 /**
  * Recorded video: pick a day and a time, then play. There is no seek bar and no speed control
