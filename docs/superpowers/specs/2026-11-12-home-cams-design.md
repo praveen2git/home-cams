@@ -121,6 +121,22 @@ Milestone 1 code that does not depend on TVT formats can start before this. That
 
 **Skipped for v1:** phone remote for typing passwords, motion events, a recordings timeline, downloads, playback speed, 2-way audio, cloud-only cameras (Ring, Nest, Blink, Wyze), and TVT/Hik/Dahua private APIs.
 
+## As built (2026-11-22, v0.1.0 code, not released yet)
+
+Milestones 1, 2 and 3 are coded in one pass. Differences from the plan above:
+
+- **Package is `com.home.cams`**, to match Home TV's move to `com.home.tv`.
+- **No brand names in the UI** (user request). The types are "NVR type 1" (TVT), "NVR type 2" (Hikvision), "NVR type 3" (Dahua / CP Plus), "ONVIF camera" and "RTSP address". NVR channels are named "Cam N".
+- **TVT live uses `/chID={ch}&streamType=main|sub`.** This is the common TVT format. It is not checked on the Benefio yet (Milestone 0). TVT playback is still unknown, so type 1 has no playback.
+- **Storage is JSON in SharedPreferences**, not DataStore. One less library. Backup is off because the file holds camera passwords.
+- **The updater is a small new one**, not a copy of Home TV's. It reads the latest release of `praveen2git/home-cams`.
+- **PTZ support is read from the media profile** (it has a `PTZConfiguration`) plus the PTZ address in GetCapabilities, not from GetNodes.
+- **PTZ on NVR channels is not built.** It works on cameras added with ONVIF only.
+- **Full screen keys:** OK starts PTZ, Left opens playback. FF/Rewind zoom as well as the channel keys.
+- **Media3 connects RTSP with no time limit.** `CamPlayer` adds a 4 second connect limit and short release waits. Without them a dead NVR froze the app when leaving the wall.
+
+Checked: 18 unit tests, signed release build, and a walk on the TV emulator (add sources, wall paging, 3x3 layout, error tiles, full screen video, playback picker). Not checked: any real camera, PTZ on hardware, ONVIF discovery, a real Fire TV.
+
 ## Verification
 
 - **Unit tests:**

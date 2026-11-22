@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Home Cams</string>
+    <style name="Theme.HomeCams" parent="android:Theme.NoTitleBar.Fullscreen">
+        <item name="android:windowBackground">#FF0D1117</item>
+        <item name="android:colorBackground">#FF0D1117</item>
+    </style>
+</resources>
