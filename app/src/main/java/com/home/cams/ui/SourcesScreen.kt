@@ -95,6 +95,7 @@ fun EditSourceScreen(initial: Source?, onvif: OnvifClient, onSave: (Source) -> U
     var pass by remember { mutableStateOf(initial?.pass.orEmpty()) }
     var channels by remember { mutableStateOf((initial?.channelCount?.takeIf { initial.brand.isNvr } ?: 8).toString()) }
     var url by remember { mutableStateOf(initial?.mainUri?.takeIf { initial.brand == Brand.RTSP }.orEmpty()) }
+    var subUrl by remember { mutableStateOf(initial?.subUri?.takeIf { initial.brand == Brand.RTSP && it != initial.mainUri }.orEmpty()) }
     var status by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
@@ -115,7 +116,8 @@ fun EditSourceScreen(initial: Source?, onvif: OnvifClient, onSave: (Source) -> U
                     status = "Enter an address that starts with rtsp://"
                     return
                 }
-                onSave(base.copy(host = hostOf(url), mainUri = url, subUri = url))
+                val cleanSub = subUrl.trim().ifEmpty { url }
+                onSave(base.copy(host = hostOf(url), mainUri = url, subUri = cleanSub))
             }
             host.isBlank() -> status = "Enter the IP address."
             brand.isNvr -> {
@@ -158,6 +160,7 @@ fun EditSourceScreen(initial: Source?, onvif: OnvifClient, onSave: (Source) -> U
                 "RTSP address", url, keyboard = KeyboardType.Uri,
                 start = "rtsp://${lan.ifEmpty { "192.168.1." }}200:554/chID=1&streamType=main"
             ) { url = it }
+            TextRow("Small stream address (optional)", subUrl, keyboard = KeyboardType.Uri) { subUrl = it }
         } else {
             TextRow(if (brand == Brand.ONVIF) "IP address (add :port if not 80)" else "IP address", host, keyboard = KeyboardType.Uri, start = lan) { host = it }
             if (brand.isNvr) TextRow("RTSP port", port, keyboard = KeyboardType.Number) { port = it }

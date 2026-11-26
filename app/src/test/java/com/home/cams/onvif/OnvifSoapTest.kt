@@ -50,13 +50,18 @@ class OnvifSoapTest {
 
         val profiles = """
             <trt:Profiles token="Profile_1" fixed="true"><tt:Name>main</tt:Name>
+              <tt:VideoEncoderConfiguration><tt:Encoding>H265</tt:Encoding>
               <tt:Resolution><tt:Width>2560</tt:Width><tt:Height>1440</tt:Height></tt:Resolution>
+              <tt:RateControl><tt:FrameRateLimit>20</tt:FrameRateLimit></tt:RateControl></tt:VideoEncoderConfiguration>
               <tt:PTZConfiguration token="ptz0"><tt:NodeToken>n0</tt:NodeToken></tt:PTZConfiguration></trt:Profiles>
             <trt:Profiles token="Profile_2" fixed="true"><tt:Name>sub</tt:Name>
               <tt:Resolution><tt:Width>640</tt:Width><tt:Height>360</tt:Height></tt:Resolution></trt:Profiles>
         """
         assertEquals(
-            listOf(OnvifProfile("Profile_1", 2560, 1440, ptz = true), OnvifProfile("Profile_2", 640, 360)),
+            listOf(
+                OnvifProfile("Profile_1", 2560, 1440, ptz = true, name = "main", encoding = "H265", fps = 20),
+                OnvifProfile("Profile_2", 640, 360, name = "sub")
+            ),
             OnvifSoap.parseProfiles(profiles)
         )
 

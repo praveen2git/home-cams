@@ -60,6 +60,8 @@ class SourceTest {
         assertEquals("rtsp://h/x", withCredentials("rtsp://h/x", null, null))
         assertEquals("192.168.1.9", hostOf("rtsp://a:b@192.168.1.9:554/x"))
         assertEquals("192.168.1.9", hostOf("http://192.168.1.9/onvif/device_service"))
+        assertEquals("rtsp://admin:***@192.168.1.200:554/x", maskCredentials("rtsp://admin:p%40ss@192.168.1.200:554/x"))
+        assertEquals("rtsp://192.168.1.200:554/x", maskCredentials("rtsp://192.168.1.200:554/x"))
     }
 
     @Test

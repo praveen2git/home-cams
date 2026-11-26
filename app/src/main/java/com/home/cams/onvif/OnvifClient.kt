@@ -23,6 +23,9 @@ class CameraException(message: String) : Exception(message)
 /** What a camera told us: its stream addresses, and its PTZ service when it can move. */
 data class OnvifInfo(val mainUri: String, val subUri: String, val ptzXaddr: String?, val ptzToken: String?)
 
+/** One ONVIF video profile together with its RTSP stream address. */
+data class OnvifProfileStream(val profile: OnvifProfile, val uri: String)
+
 /** Calls the camera's ONVIF services over HTTP. */
 class OnvifClient(baseClient: OkHttpClient, private val clockMs: () -> Long = System::currentTimeMillis) {
 
@@ -49,8 +52,9 @@ class OnvifClient(baseClient: OkHttpClient, private val clockMs: () -> Long = Sy
         val media = OnvifSoap.parseServiceXAddr(caps, "Media") ?: deviceXAddr
         val profiles = OnvifSoap.parseProfiles(post(media, OnvifSoap.GET_PROFILES, user, password, offset))
         if (profiles.isEmpty()) throw CameraException("The camera sent no video profiles.")
-        val main = profiles.maxBy { it.width * it.height }
-        val sub = profiles.minBy { it.width * it.height }
+        val video = profiles.filter { it.width > 0 && it.height > 0 }.ifEmpty { profiles }
+        val main = video.maxBy { it.width * it.height }
+        val sub = video.minBy { it.width * it.height }
         fun uri(p: OnvifProfile) = OnvifSoap.parseStreamUri(post(media, OnvifSoap.getStreamUri(p.token), user, password, offset))
             ?: throw CameraException("The camera sent no stream address.")
         val mainUri = uri(main)
@@ -60,6 +64,20 @@ class OnvifClient(baseClient: OkHttpClient, private val clockMs: () -> Long = Sy
             mainUri, if (sub == main) mainUri else uri(sub),
             ptzXaddr.takeIf { ptzProfile != null }, ptzProfile?.token.takeIf { ptzXaddr != null }
         )
+    }
+
+    /** Lists all video profiles reported by the camera along with their RTSP stream addresses. */
+    suspend fun profiles(deviceXAddr: String, user: String?, password: String?): List<OnvifProfileStream> = withContext(Dispatchers.IO) {
+        offsets.remove(deviceXAddr)
+        val offset = offset(deviceXAddr)
+        val caps = post(deviceXAddr, OnvifSoap.GET_CAPABILITIES, user, password, offset)
+        val media = OnvifSoap.parseServiceXAddr(caps, "Media") ?: deviceXAddr
+        val profiles = OnvifSoap.parseProfiles(post(media, OnvifSoap.GET_PROFILES, user, password, offset))
+        if (profiles.isEmpty()) throw CameraException("The camera sent no video profiles.")
+        profiles.mapNotNull { p ->
+            OnvifSoap.parseStreamUri(post(media, OnvifSoap.getStreamUri(p.token), user, password, offset))
+                ?.let { OnvifProfileStream(p, it) }
+        }
     }
 
     /** Sends one PTZ command ([OnvifSoap.continuousMove] or [OnvifSoap.ptzStop]) to a camera that has PTZ. */

@@ -1,5 +1,6 @@
 package com.home.cams.ui
 
+import android.content.Context
 import android.view.ViewGroup
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
@@ -11,6 +12,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -21,9 +23,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.Tracks
+import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
@@ -34,7 +39,11 @@ import androidx.media3.exoplayer.rtsp.RtspMediaSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
@@ -42,6 +51,8 @@ import java.net.SocketException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import javax.net.SocketFactory
+import kotlin.coroutines.resume
+import kotlin.math.roundToInt
 
 private const val STUCK_WAIT_MS = 200L
 private const val CONNECT_TIMEOUT_MS = 4_000
@@ -96,6 +107,126 @@ fun cameraErrorText(error: PlaybackException): String {
     }
 }
 
+/** Video stream details reported by Media3 while playing or probing. */
+data class StreamInfo(
+    val width: Int = 0,
+    val height: Int = 0,
+    val codec: String = "",
+    val fps: Float = 0f,
+    val supported: Boolean? = null
+) {
+    fun summary(): String = buildList {
+        if (width > 0 && height > 0) add("${width}x$height")
+        if (codec.isNotEmpty()) add(codec)
+        if (fps > 0f) add("${fps.roundToInt()}fps")
+        if (supported == false) add("unsupported on this TV")
+    }.joinToString(" ")
+}
+
+/** Last seen video details and errors per stream URI, kept in memory for quick inspection. */
+object StreamCache {
+    val info = mutableStateMapOf<String, StreamInfo>()
+    val errors = mutableStateMapOf<String, String>()
+}
+
+private fun codecLabel(mime: String?): String = when (mime?.lowercase()) {
+    "video/avc" -> "H.264"
+    "video/hevc" -> "H.265"
+    "video/mp4v-es" -> "MPEG-4"
+    "video/x-vnd.on2.vp8" -> "VP8"
+    "video/x-vnd.on2.vp9" -> "VP9"
+    "video/av01" -> "AV1"
+    null -> ""
+    else -> mime.substringAfter('/').uppercase()
+}
+
+@OptIn(UnstableApi::class)
+private fun extractStreamInfo(player: ExoPlayer, size: VideoSize? = null, tracks: Tracks? = null): StreamInfo? {
+    val vf = player.videoFormat
+    val vg = (tracks ?: player.currentTracks).groups.firstOrNull { it.type == C.TRACK_TYPE_VIDEO }
+    val tf = vg?.takeIf { it.length > 0 }?.getTrackFormat(0)
+    val w = size?.width?.takeIf { it > 0 } ?: vf?.width?.takeIf { it > 0 } ?: tf?.width?.takeIf { it > 0 } ?: 0
+    val h = size?.height?.takeIf { it > 0 } ?: vf?.height?.takeIf { it > 0 } ?: tf?.height?.takeIf { it > 0 } ?: 0
+    val mime = vf?.sampleMimeType ?: tf?.sampleMimeType
+    val fps = vf?.frameRate?.takeIf { it > 0f } ?: tf?.frameRate?.takeIf { it > 0f } ?: 0f
+    val supported = vg?.takeIf { it.length > 0 }?.isTrackSupported(0)
+    if (w == 0 && mime.isNullOrEmpty()) return null
+    return StreamInfo(w, h, codecLabel(mime), fps, supported)
+}
+
+/**
+ * Connects to [uri] briefly to read its video resolution, codec and whether this TV can decode it.
+ * Call when no other screen is holding decoders on a low-end TV.
+ */
+@OptIn(UnstableApi::class)
+suspend fun probeStream(context: Context, uri: String, timeoutMs: Long = 5_000): Pair<StreamInfo?, String?> {
+    if (uri.isBlank()) return null to "Missing stream address"
+    return withContext(Dispatchers.Main) {
+        val player = ExoPlayer.Builder(context)
+            .setReleaseTimeoutMs(STUCK_WAIT_MS)
+            .setDetachSurfaceTimeoutMs(STUCK_WAIT_MS)
+            .setRenderersFactory(DefaultRenderersFactory(context).setEnableDecoderFallback(true))
+            .setLoadControl(DefaultLoadControl.Builder().setBufferDurationsMs(500, 2_000, 250, 500).build())
+            .build()
+        try {
+            var best: StreamInfo? = null
+            val result = withTimeoutOrNull(timeoutMs) {
+                suspendCancellableCoroutine<Pair<StreamInfo?, String?>> { cont ->
+                    fun finish(info: StreamInfo?, err: String?) {
+                        if (cont.isActive) cont.resume(info to err)
+                    }
+                    player.addListener(object : Player.Listener {
+                        override fun onTracksChanged(tracks: Tracks) {
+                            extractStreamInfo(player, tracks = tracks)?.let {
+                                best = it
+                                StreamCache.info[uri] = it
+                            }
+                        }
+
+                        override fun onVideoSizeChanged(videoSize: VideoSize) {
+                            extractStreamInfo(player, size = videoSize)?.let {
+                                best = it
+                                StreamCache.info[uri] = it
+                                if (it.width > 0 && it.height > 0) finish(it, null)
+                            }
+                        }
+
+                        override fun onPlaybackStateChanged(state: Int) {
+                            if (state == Player.STATE_READY) {
+                                val info = extractStreamInfo(player) ?: best
+                                if (info != null) {
+                                    best = info
+                                    StreamCache.info[uri] = info
+                                    if (info.width > 0 && info.height > 0) finish(info, null)
+                                }
+                            }
+                        }
+
+                        override fun onPlayerError(e: PlaybackException) {
+                            val msg = cameraErrorText(e)
+                            StreamCache.errors[uri] = msg
+                            finish(best, msg)
+                        }
+                    })
+                    val item = MediaItem.fromUri(uri)
+                    player.setMediaSource(
+                        if (uri.startsWith("rtsp", true)) {
+                            RtspMediaSource.Factory().setForceUseRtpTcp(true).setSocketFactory(QuickConnect).createMediaSource(item)
+                        } else {
+                            DefaultMediaSourceFactory(context).createMediaSource(item)
+                        }
+                    )
+                    player.prepare()
+                    player.playWhenReady = true
+                }
+            }
+            result ?: (best to if (best != null) null else "Timed out waiting for video")
+        } finally {
+            player.release()
+        }
+    }
+}
+
 /**
  * One player on a SurfaceView, released when it leaves the screen. A failure shows its own reason
  * and never touches the other players.
@@ -112,6 +243,7 @@ fun CamPlayer(
     /** False for a tile that must leave the hardware decoders to others. */
     hardware: Boolean = true,
     errorText: (PlaybackException) -> String = ::cameraErrorText,
+    onInfo: (StreamInfo) -> Unit = {},
     onPlayer: (ExoPlayer?) -> Unit = {}
 ) {
     if (uri.isBlank()) {
@@ -157,10 +289,27 @@ fun CamPlayer(
             addListener(object : Player.Listener {
                 override fun onPlayerError(e: PlaybackException) {
                     error = errorText(e)
+                    StreamCache.errors[uri] = error.orEmpty()
                     // Every 4xxx code is a decoder error.
                     decoderError = e.errorCode / 1000 == 4
                     ready = false
                     fails++
+                }
+
+                override fun onTracksChanged(tracks: Tracks) {
+                    extractStreamInfo(this@apply, tracks = tracks)?.let {
+                        StreamCache.info[uri] = it
+                        StreamCache.errors.remove(uri)
+                        onInfo(it)
+                    }
+                }
+
+                override fun onVideoSizeChanged(videoSize: VideoSize) {
+                    extractStreamInfo(this@apply, size = videoSize)?.let {
+                        StreamCache.info[uri] = it
+                        StreamCache.errors.remove(uri)
+                        onInfo(it)
+                    }
                 }
 
                 override fun onPlaybackStateChanged(state: Int) {
@@ -168,6 +317,11 @@ fun CamPlayer(
                         error = null
                         fails = 0
                         ready = true
+                        extractStreamInfo(this@apply)?.let {
+                            StreamCache.info[uri] = it
+                            StreamCache.errors.remove(uri)
+                            onInfo(it)
+                        }
                     }
                 }
             })

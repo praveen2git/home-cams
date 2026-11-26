@@ -100,3 +100,7 @@ fun withCredentials(uri: String, user: String?, password: String?): String {
 }
 
 fun hostOf(url: String): String = Regex("://(?:[^/@]*@)?([^/:]+)").find(url)?.groupValues?.get(1) ?: url
+
+/** Hides the password in an RTSP or HTTP address before showing it on screen. */
+fun maskCredentials(uri: String): String =
+    Regex("^([a-zA-Z][a-zA-Z0-9+.-]*://)([^/@:]+):[^/@]*@").replace(uri, "$1$2:***@")

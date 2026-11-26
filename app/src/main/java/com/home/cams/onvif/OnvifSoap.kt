@@ -8,7 +8,15 @@ import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 
-data class OnvifProfile(val token: String, val width: Int, val height: Int, val ptz: Boolean = false)
+data class OnvifProfile(
+    val token: String,
+    val width: Int,
+    val height: Int,
+    val ptz: Boolean = false,
+    val name: String = "",
+    val encoding: String = "",
+    val fps: Int = 0
+)
 
 /**
  * The small part of ONVIF Home Cams needs, as plain text: no ONVIF or XML library.
@@ -121,12 +129,15 @@ object OnvifSoap {
     fun parseProfiles(xml: String): List<OnvifProfile> {
         val profiles = Regex("<(?:[\\w-]+:)?Profiles\\b([^>]*)>(.*?)</(?:[\\w-]+:)?Profiles>", RegexOption.DOT_MATCHES_ALL)
         return profiles.findAll(xml).mapNotNull { m ->
-            val token = Regex("token=\"([^\"]+)\"").find(m.groupValues[1])?.groupValues?.get(1) ?: return@mapNotNull null
+            val token = Regex("token=[\"']([^\"']+)[\"']").find(m.groupValues[1])?.groupValues?.get(1) ?: return@mapNotNull null
             val body = m.groupValues[2]
             OnvifProfile(
                 token, first(body, "Width")?.toIntOrNull() ?: 0, first(body, "Height")?.toIntOrNull() ?: 0,
                 // A profile that can move carries a PTZ configuration.
-                ptz = body.contains("PTZConfiguration")
+                ptz = body.contains("PTZConfiguration"),
+                name = first(body, "Name").orEmpty(),
+                encoding = first(body, "Encoding").orEmpty(),
+                fps = first(body, "FrameRateLimit")?.toIntOrNull() ?: 0
             )
         }.toList()
     }
