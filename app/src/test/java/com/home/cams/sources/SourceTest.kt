@@ -33,11 +33,14 @@ class SourceTest {
     }
 
     @Test
-    fun tvt_liveOnly() {
+    fun tvt_liveAndPlayback() {
         val s = nvr.copy(brand = Brand.TVT, pass = "pw")
         assertEquals("rtsp://admin:pw@192.168.1.200:554/chID=1&streamType=main", Brand.TVT.liveUri(s, 1, sub = false))
         assertEquals("rtsp://admin:pw@192.168.1.200:554/chID=1&streamType=sub", Brand.TVT.liveUri(s, 1, sub = true))
-        assertNull(Brand.TVT.playbackUri(s, 1, at))
+        assertEquals(
+            "rtsp://admin:pw@192.168.1.200:554/chID=1&date=2026-11-12&time=09:05:00&timelen=3600&streamType=main&action=playback",
+            Brand.TVT.playbackUri(s, 1, at)
+        )
     }
 
     @Test

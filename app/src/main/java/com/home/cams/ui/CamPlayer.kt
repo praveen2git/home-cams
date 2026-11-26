@@ -44,6 +44,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
@@ -58,12 +60,109 @@ private const val STUCK_WAIT_MS = 200L
 private const val CONNECT_TIMEOUT_MS = 4_000
 
 /**
+ * Strips non-standard trailing parameters (such as `, AuthVersion="1.1"` from TVT NVRs) from
+ * `WWW-Authenticate` RTSP response headers so Media3's strict header parser accepts them.
+ */
+internal fun cleanRtspHeaderLine(line: String): String {
+    if (!line.startsWith("WWW-Authenticate:", ignoreCase = true)) return line
+    return Regex(""",\s*AuthVersion="[^"]*"""").replace(line, "")
+}
+
+/**
+ * Filters RTSP response headers on a TCP socket without touching SDP bodies or `$` interleaved
+ * binary RTP frames.
+ */
+internal class RtspHeaderFilterStream(private val raw: InputStream) : InputStream() {
+    private var buf = ByteArray(0)
+    private var pos = 0
+    private var rawRemaining = 0
+    private var inHeaders = false
+    private var pendingContentLength = 0
+
+    override fun available(): Int = (buf.size - pos) + raw.available()
+
+    override fun close() = raw.close()
+
+    override fun read(): Int {
+        val one = ByteArray(1)
+        return if (read(one, 0, 1) == -1) -1 else one[0].toInt() and 0xFF
+    }
+
+    override fun read(b: ByteArray, off: Int, len: Int): Int {
+        if (len == 0) return 0
+        if (pos < buf.size) {
+            val n = minOf(len, buf.size - pos)
+            System.arraycopy(buf, pos, b, off, n)
+            pos += n
+            return n
+        }
+        if (rawRemaining > 0) {
+            val n = raw.read(b, off, minOf(len, rawRemaining))
+            if (n > 0) rawRemaining -= n
+            return n
+        }
+        if (!fillNext()) return -1
+        return read(b, off, len)
+    }
+
+    private fun fillNext(): Boolean {
+        val first = raw.read()
+        if (first < 0) return false
+        if (!inHeaders && first == '$'.code) {
+            val hdr = ByteArray(4)
+            hdr[0] = first.toByte()
+            var got = 1
+            while (got < 4) {
+                val n = raw.read(hdr, got, 4 - got)
+                if (n < 0) break
+                got += n
+            }
+            buf = if (got == 4) hdr else hdr.copyOf(got)
+            pos = 0
+            if (got == 4) {
+                rawRemaining = ((hdr[2].toInt() and 0xFF) shl 8) or (hdr[3].toInt() and 0xFF)
+            }
+            return true
+        }
+        inHeaders = true
+        val lineBytes = ByteArrayOutputStream()
+        lineBytes.write(first)
+        if (first != '\n'.code) {
+            while (true) {
+                val c = raw.read()
+                if (c < 0) break
+                lineBytes.write(c)
+                if (c == '\n'.code) break
+            }
+        }
+        val text = lineBytes.toString("ISO_8859_1")
+        val cleaned = cleanRtspHeaderLine(text)
+        if (cleaned.startsWith("Content-Length:", ignoreCase = true)) {
+            pendingContentLength = cleaned.substringAfter(':').trim().toIntOrNull() ?: 0
+        }
+        if (cleaned == "\r\n" || cleaned == "\n") {
+            inHeaders = false
+            rawRemaining = pendingContentLength
+            pendingContentLength = 0
+        }
+        buf = cleaned.toByteArray(Charsets.ISO_8859_1)
+        pos = 0
+        return true
+    }
+}
+
+private class RtspSocket : Socket() {
+    private val filtered by lazy { RtspHeaderFilterStream(super.getInputStream()) }
+    override fun getInputStream(): InputStream = filtered
+}
+
+/**
  * Media3 connects the RTSP socket on the playback thread with no time limit. A camera that is off
  * would block that thread for minutes, so the connect gets a limit here.
  */
 private object QuickConnect : SocketFactory() {
     private fun connect(address: InetSocketAddress): Socket {
-        val socket = Socket()
+        val socket = RtspSocket()
         try {
             socket.connect(address, CONNECT_TIMEOUT_MS)
         } catch (e: Exception) {

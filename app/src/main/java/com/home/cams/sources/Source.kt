@@ -53,13 +53,15 @@ enum class Brand(val label: String, val isNvr: Boolean) {
     fun playbackUri(src: Source, ch: Int, start: LocalDateTime): String? = when (this) {
         HIKVISION -> src.rtsp("/Streaming/tracks/${ch}01?starttime=${start.format(HIK_TIME)}")
         DAHUA -> src.rtsp("/cam/playback?channel=$ch&subtype=0&starttime=${start.format(DAHUA_TIME)}")
-        // TVT playback format is not known yet (design Milestone 0).
-        TVT, ONVIF, RTSP -> null
+        TVT -> src.rtsp("/chID=$ch&date=${start.format(TVT_DATE)}&time=${start.format(TVT_TIME)}&timelen=3600&streamType=main&action=playback")
+        ONVIF, RTSP -> null
     }
 
     private companion object {
         val HIK_TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss'Z'")
         val DAHUA_TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy_MM_dd_HH_mm_ss")
+        val TVT_DATE: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+        val TVT_TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss")
     }
 }
 
