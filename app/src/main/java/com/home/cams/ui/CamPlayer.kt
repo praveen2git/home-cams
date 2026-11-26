@@ -68,9 +68,50 @@ internal fun cleanRtspHeaderLine(line: String): String {
     return Regex(""",\s*AuthVersion="[^"]*"""").replace(line, "")
 }
 
+private val H265_RTPMAP = Regex("""a=rtpmap:(\d+)\s+(?:H265|HEVC)/""", RegexOption.IGNORE_CASE)
+
 /**
- * Filters RTSP response headers on a TCP socket without touching SDP bodies or `$` interleaved
- * binary RTP frames.
+ * Checks whether an H.265 RTP packet would trigger a fatal `ParserException` in Media3's
+ * `RtpH265Reader` (e.g., proprietary NAL types 50..63 or truncated FU/AP payloads). Dropping it at
+ * the framing layer lets `RtpH265Reader` treat it as a packet gap and keep playing.
+ */
+internal fun shouldDropH265RtpPacket(pkt: ByteArray, h265PayloadTypes: Set<Int>): Boolean {
+    if (pkt.size < 12) return false
+    val v = (pkt[0].toInt() ushr 6) and 0x03
+    if (v != 2) return false
+    val pt = pkt[1].toInt() and 0x7F
+    if (pt !in h265PayloadTypes) return false
+    val cc = pkt[0].toInt() and 0x0F
+    val hasExt = (pkt[0].toInt() and 0x10) != 0
+    var offset = 12 + cc * 4
+    if (hasExt) {
+        if (offset + 4 > pkt.size) return true
+        val extWords = ((pkt[offset + 2].toInt() and 0xFF) shl 8) or (pkt[offset + 3].toInt() and 0xFF)
+        offset += 4 + extWords * 4
+    }
+    val payloadLen = pkt.size - offset
+    if (payloadLen <= 0) return true
+    val nalType = (pkt[offset].toInt() ushr 1) and 0x3F
+    if (nalType >= 50) return true
+    if (nalType == 49 && payloadLen < 3) return true
+    if (nalType == 48) {
+        var p = offset + 2
+        var count = 0
+        while (pkt.size - p > 2) {
+            val nalLen = ((pkt[p].toInt() and 0xFF) shl 8) or (pkt[p + 1].toInt() and 0xFF)
+            p += 2
+            if (pkt.size - p < nalLen) return true
+            p += nalLen
+            count++
+        }
+        if (pkt.size - p > 0 || count < 2) return true
+    }
+    return false
+}
+
+/**
+ * Filters RTSP response headers on a TCP socket and drops unsupported H.265 RTP NAL packets
+ * (types 50..63 or truncated FU/AP frames) that would otherwise abort Media3's `RtpH265Reader`.
  */
 internal class RtspHeaderFilterStream(private val raw: InputStream) : InputStream() {
     private var buf = ByteArray(0)
@@ -78,6 +119,7 @@ internal class RtspHeaderFilterStream(private val raw: InputStream) : InputStrea
     private var rawRemaining = 0
     private var inHeaders = false
     private var pendingContentLength = 0
+    private val h265PayloadTypes = mutableSetOf<Int>()
 
     override fun available(): Int = (buf.size - pos) + raw.available()
 
@@ -105,49 +147,92 @@ internal class RtspHeaderFilterStream(private val raw: InputStream) : InputStrea
         return read(b, off, len)
     }
 
+    private fun readUpTo(dst: ByteArray, start: Int, count: Int): Int {
+        var got = start
+        while (got < start + count) {
+            val n = raw.read(dst, got, start + count - got)
+            if (n < 0) break
+            got += n
+        }
+        return got - start
+    }
+
     private fun fillNext(): Boolean {
-        val first = raw.read()
-        if (first < 0) return false
-        if (!inHeaders && first == '$'.code) {
-            val hdr = ByteArray(4)
-            hdr[0] = first.toByte()
-            var got = 1
-            while (got < 4) {
-                val n = raw.read(hdr, got, 4 - got)
-                if (n < 0) break
-                got += n
+        while (true) {
+            val first = raw.read()
+            if (first < 0) return false
+            if (!inHeaders && first == '$'.code) {
+                val hdr = ByteArray(4)
+                hdr[0] = first.toByte()
+                val rest = readUpTo(hdr, 1, 3)
+                val got = 1 + rest
+                if (got < 4) {
+                    buf = hdr.copyOf(got)
+                    pos = 0
+                    return true
+                }
+                val length = ((hdr[2].toInt() and 0xFF) shl 8) or (hdr[3].toInt() and 0xFF)
+                val isRtpChannel = (hdr[1].toInt() and 1) == 0
+                if (h265PayloadTypes.isNotEmpty() && isRtpChannel && length > 0) {
+                    val frame = ByteArray(4 + length)
+                    System.arraycopy(hdr, 0, frame, 0, 4)
+                    val readLen = readUpTo(frame, 4, length)
+                    if (readLen == length) {
+                        val pkt = frame.copyOfRange(4, 4 + length)
+                        if (shouldDropH265RtpPacket(pkt, h265PayloadTypes)) {
+                            continue
+                        }
+                    }
+                    buf = if (readLen == length) frame else frame.copyOf(4 + readLen)
+                    pos = 0
+                    return true
+                }
+                buf = hdr
+                pos = 0
+                rawRemaining = length
+                return true
             }
-            buf = if (got == 4) hdr else hdr.copyOf(got)
+            inHeaders = true
+            val lineBytes = ByteArrayOutputStream()
+            lineBytes.write(first)
+            if (first != '\n'.code) {
+                while (true) {
+                    val c = raw.read()
+                    if (c < 0) break
+                    lineBytes.write(c)
+                    if (c == '\n'.code) break
+                }
+            }
+            val text = lineBytes.toString("ISO_8859_1")
+            val cleaned = cleanRtspHeaderLine(text)
+            if (cleaned.startsWith("Content-Length:", ignoreCase = true)) {
+                pendingContentLength = cleaned.substringAfter(':').trim().toIntOrNull() ?: 0
+            }
+            if (cleaned == "\r\n" || cleaned == "\n") {
+                inHeaders = false
+                if (pendingContentLength in 1..32_768) {
+                    val headerBytes = cleaned.toByteArray(Charsets.ISO_8859_1)
+                    val body = ByteArray(pendingContentLength)
+                    val gotBody = readUpTo(body, 0, pendingContentLength)
+                    pendingContentLength = 0
+                    val sdp = String(body, 0, gotBody, Charsets.ISO_8859_1)
+                    H265_RTPMAP.findAll(sdp).forEach { m ->
+                        m.groupValues[1].toIntOrNull()?.let { h265PayloadTypes += it }
+                    }
+                    val combined = ByteArray(headerBytes.size + gotBody)
+                    System.arraycopy(headerBytes, 0, combined, 0, headerBytes.size)
+                    System.arraycopy(body, 0, combined, headerBytes.size, gotBody)
+                    buf = combined
+                    pos = 0
+                    return true
+                }
+                rawRemaining = pendingContentLength
+                pendingContentLength = 0
+            }
+            buf = cleaned.toByteArray(Charsets.ISO_8859_1)
             pos = 0
-            if (got == 4) {
-                rawRemaining = ((hdr[2].toInt() and 0xFF) shl 8) or (hdr[3].toInt() and 0xFF)
-            }
             return true
         }
-        inHeaders = true
-        val lineBytes = ByteArrayOutputStream()
-        lineBytes.write(first)
-        if (first != '\n'.code) {
-            while (true) {
-                val c = raw.read()
-                if (c < 0) break
-                lineBytes.write(c)
-                if (c == '\n'.code) break
-            }
-        }
-        val text = lineBytes.toString("ISO_8859_1")
-        val cleaned = cleanRtspHeaderLine(text)
-        if (cleaned.startsWith("Content-Length:", ignoreCase = true)) {
-            pendingContentLength = cleaned.substringAfter(':').trim().toIntOrNull() ?: 0
-        }
-        if (cleaned == "\r\n" || cleaned == "\n") {
-            inHeaders = false
-            rawRemaining = pendingContentLength
-            pendingContentLength = 0
-        }
-        buf = cleaned.toByteArray(Charsets.ISO_8859_1)
-        pos = 0
-        return true
     }
 }
 
@@ -358,6 +443,7 @@ fun CamPlayer(
     // Counts the errors in a row. It restarts the retry timer even when the same error text comes again.
     var fails by remember(uri) { mutableIntStateOf(0) }
     var decoderError by remember(uri) { mutableStateOf(false) }
+    var hadPicture by remember(uri) { mutableStateOf(false) }
     // False until the first picture, and again after an error.
     var ready by remember(uri) { mutableStateOf(false) }
     var dots by remember { mutableIntStateOf(0) }
@@ -418,6 +504,7 @@ fun CamPlayer(
                         error = null
                         fails = 0
                         ready = true
+                        hadPicture = true
                         extractStreamInfo(this@apply)?.let {
                             StreamCache.info[uri] = it
                             StreamCache.errors.remove(uri)
@@ -430,11 +517,12 @@ fun CamPlayer(
             playWhenReady = true
         }
     }
+    val quickRetry = (decoderError && fails <= 3) || (hadPicture && fails <= 2)
     if (error != null) {
-        // A decoder error is mostly a player on the last screen that is still closing, so the first
-        // tries come fast. After that a tile slows down, or its retries would disturb the tiles that play.
+        // Decoder-busy or transient stream glitches on an active tile mostly clear on an immediate
+        // retry; after that a tile slows down so its retries do not disturb working tiles.
         LaunchedEffect(player, fails) {
-            delay(if (!tile || (decoderError && fails <= 3)) 2_000 else 15_000)
+            delay(if (!tile || quickRetry) 2_000 else 15_000)
             player.prepare()
         }
     }
@@ -453,10 +541,10 @@ fun CamPlayer(
             update = { it.player = player },
             modifier = Modifier.fillMaxSize()
         )
-        // The quick retries after a decoder error mostly work, so they show as loading, not as an error.
+        // Quick retries mostly recover immediately, so they show as loading rather than flashing an error.
         val text = when {
             ready -> null
-            error == null || (decoderError && fails <= 3) -> "Loading" + ".".repeat(dots)
+            error == null || quickRetry -> "Loading" + ".".repeat(dots)
             else -> error
         }
         text?.let {

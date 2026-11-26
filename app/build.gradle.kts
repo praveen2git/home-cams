@@ -13,8 +13,8 @@ android {
         applicationId = "com.home.cams"
         minSdk = 24
         targetSdk = 36
-        versionCode = 13
-        versionName = "0.1.12"
+        versionCode = 14
+        versionName = "0.1.13"
     }
 
     // Release key lives outside the repo; keystore.properties (git-ignored) points to it.
