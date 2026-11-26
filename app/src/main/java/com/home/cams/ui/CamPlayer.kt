@@ -149,7 +149,9 @@ private fun extractStreamInfo(player: ExoPlayer, size: VideoSize? = null, tracks
     val h = size?.height?.takeIf { it > 0 } ?: vf?.height?.takeIf { it > 0 } ?: tf?.height?.takeIf { it > 0 } ?: 0
     val mime = vf?.sampleMimeType ?: tf?.sampleMimeType
     val fps = vf?.frameRate?.takeIf { it > 0f } ?: tf?.frameRate?.takeIf { it > 0f } ?: 0f
-    val supported = vg?.takeIf { it.length > 0 }?.isTrackSupported(0)
+    // If ExoPlayer is actively decoding frames via software fallback, the stream IS supported on this TV.
+    val decoded = (size?.width ?: 0) > 0 || (vf?.width ?: 0) > 0
+    val supported = if (decoded) true else vg?.takeIf { it.length > 0 }?.let { it.isTrackSupported(0) || it.isTrackSelected(0) }
     if (w == 0 && mime.isNullOrEmpty()) return null
     return StreamInfo(w, h, codecLabel(mime), fps, supported)
 }

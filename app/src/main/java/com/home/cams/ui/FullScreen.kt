@@ -97,8 +97,8 @@ fun FullScreen(
         }
         if (!down) return@KeyBox false
         when (code) {
-            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_CHANNEL_UP -> onIndex(Math.floorMod(index - 1, cams.size))
-            KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_CHANNEL_DOWN -> onIndex(Math.floorMod(index + 1, cams.size))
+            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_CHANNEL_UP -> onIndex(Math.floorMod(index + 1, cams.size))
+            KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_CHANNEL_DOWN -> onIndex(Math.floorMod(index - 1, cams.size))
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER ->
                 if (cam.hasPtz) ptz = true else return@KeyBox false
             KeyEvent.KEYCODE_DPAD_LEFT -> if (canPlayBack) onPlayback() else return@KeyBox false
