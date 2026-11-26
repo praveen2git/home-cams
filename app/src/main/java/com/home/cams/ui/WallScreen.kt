@@ -29,7 +29,7 @@ import com.home.cams.sources.Wall
 private const val HARDWARE_TILES = 2
 
 /**
- * The camera wall. Each tile plays the sub stream. Only the tiles on the current page have a
+ * The camera wall. Each tile plays the sub stream, unless the viewer picked "Large" for that camera. Only the tiles on the current page have a
  * player, so the live tile cap holds. Arrow keys move the selection and page through the cameras.
  */
 @Composable
@@ -113,7 +113,7 @@ fun WallScreen(
 @Composable
 private fun Tile(cam: Cam, selected: Boolean, hardware: Boolean) {
     Box(Modifier.fillMaxSize().border(3.dp, if (selected) Accent else Color.Transparent).padding(3.dp)) {
-        CamPlayer(cam.liveUri(sub = true), tile = true, modifier = Modifier.fillMaxSize(), hardware = hardware)
+        CamPlayer(cam.liveUri(sub = cam.quality.sub(tile = true)), tile = true, modifier = Modifier.fillMaxSize(), hardware = hardware)
         Label(
             cam.name,
             Modifier.align(Alignment.BottomStart).background(Scrim).padding(horizontal = 8.dp, vertical = 3.dp),

@@ -21,7 +21,9 @@ data class Source(
     val subUri: String = "",
     /** Set when the camera answers ONVIF PTZ. */
     val ptzXaddr: String? = null,
-    val ptzToken: String? = null
+    val ptzToken: String? = null,
+    /** Resolution the viewer picked, by channel. A missing channel is [Quality.AUTO]. */
+    val quality: Map<Int, Quality> = emptyMap()
 ) {
     internal fun rtsp(path: String) = withCredentials("rtsp://$host:$rtspPort$path", user, pass)
 }
@@ -61,11 +63,22 @@ enum class Brand(val label: String, val isNvr: Boolean) {
     }
 }
 
+/** Which stream a camera plays. "Large" is the main stream, "Small" the sub stream. */
+enum class Quality(val label: String) {
+    AUTO("Auto: small on the wall, large in full screen"),
+    HIGH("Large everywhere"),
+    LOW("Small everywhere");
+
+    /** True when the sub stream plays, on a wall tile or in full screen. */
+    fun sub(tile: Boolean) = when (this) { AUTO -> tile; HIGH -> false; LOW -> true }
+}
+
 /** One picture on the wall: a single camera, or one channel of an NVR. */
 data class Cam(val source: Source, val channel: Int) {
     val id get() = "${source.id}#$channel"
     val name get() = if (source.brand.isNvr) "${source.name} $channel" else source.name
     val hasPtz get() = source.ptzXaddr != null && source.ptzToken != null
+    val quality get() = source.quality[channel] ?: Quality.AUTO
     fun liveUri(sub: Boolean) = source.brand.liveUri(source, channel, sub)
     fun playbackUri(start: LocalDateTime) = source.brand.playbackUri(source, channel, start)
 }

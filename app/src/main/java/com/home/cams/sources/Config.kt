@@ -48,6 +48,7 @@ object ConfigJson {
                     .put("channelCount", s.channelCount).put("onvifXaddr", s.onvifXaddr ?: "")
                     .put("mainUri", s.mainUri).put("subUri", s.subUri)
                     .put("ptzXaddr", s.ptzXaddr ?: "").put("ptzToken", s.ptzToken ?: "")
+                    .put("quality", JSONObject().apply { s.quality.forEach { (ch, q) -> put(ch.toString(), q.name) } })
             )
         }
         return JSONObject().put("sources", arr).put("tileCap", c.tileCap).put("layout", c.layout).toString()
@@ -70,7 +71,13 @@ object ConfigJson {
                         onvifXaddr = s.optString("onvifXaddr").ifEmpty { null },
                         mainUri = s.optString("mainUri"), subUri = s.optString("subUri"),
                         ptzXaddr = s.optString("ptzXaddr").ifEmpty { null },
-                        ptzToken = s.optString("ptzToken").ifEmpty { null }
+                        ptzToken = s.optString("ptzToken").ifEmpty { null },
+                        quality = s.optJSONObject("quality")?.let { q ->
+                            q.keys().asSequence().mapNotNull { k ->
+                                val ch = k.toIntOrNull() ?: return@mapNotNull null
+                                Quality.entries.firstOrNull { it.name == q.optString(k) }?.let { ch to it }
+                            }.toMap()
+                        }.orEmpty()
                     )
                 },
                 tileCap = o.optInt("tileCap", 4),

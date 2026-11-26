@@ -75,7 +75,7 @@ class SourceTest {
     @Test
     fun config_roundTripAndBadInput() {
         val config = Config(
-            listOf(nvr, Source("c1", "Door", Brand.ONVIF, "h", onvifXaddr = "http://h/onvif", mainUri = "rtsp://h/m", subUri = "rtsp://h/s", ptzXaddr = "http://h/ptz", ptzToken = "P1")),
+            listOf(nvr.copy(quality = mapOf(2 to Quality.HIGH, 3 to Quality.LOW)), Source("c1", "Door", Brand.ONVIF, "h", onvifXaddr = "http://h/onvif", mainUri = "rtsp://h/m", subUri = "rtsp://h/s", ptzXaddr = "http://h/ptz", ptzToken = "P1")),
             tileCap = 9, layout = 6
         )
         assertEquals(config, ConfigJson.read(ConfigJson.write(config)))
@@ -84,6 +84,15 @@ class SourceTest {
         // A brand from a newer version is skipped, the rest still loads.
         val odd = ConfigJson.write(config).replace("\"HIKVISION\"", "\"FUTURE\"")
         assertEquals(listOf("c1"), ConfigJson.read(odd).sources.map { it.id })
+    }
+
+    @Test
+    fun quality_picksTheStream() {
+        assertEquals(listOf(true, false), listOf(true, false).map { Quality.AUTO.sub(it) })
+        assertEquals(listOf(false, false), listOf(true, false).map { Quality.HIGH.sub(it) })
+        assertEquals(listOf(true, true), listOf(true, false).map { Quality.LOW.sub(it) })
+        val cams = listOf(nvr.copy(quality = mapOf(2 to Quality.HIGH))).cams()
+        assertEquals(listOf(Quality.AUTO, Quality.HIGH, Quality.AUTO), cams.map { it.quality })
     }
 
     @Test

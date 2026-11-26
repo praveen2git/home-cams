@@ -98,7 +98,7 @@ fun FullScreen(
         }
         true
     }) {
-        val small = cam.id in smallOnly
+        val small = cam.id in smallOnly || cam.quality.sub(tile = false)
         CamPlayer(cam.liveUri(sub = small), tile = false, modifier = Modifier.fillMaxSize(), errorText = { e ->
             // Every 4xxx code is a decoder error.
             if (!small && e.errorCode / 1000 == 4) smallOnly += cam.id
@@ -112,7 +112,7 @@ fun FullScreen(
                 "OK: PTZ".takeIf { cam.hasPtz },
                 "Left: playback".takeIf { canPlayBack },
                 "Back: wall",
-                "Small picture: the large one is too big for this TV".takeIf { small }
+                "Small picture: the large one is too big for this TV".takeIf { cam.id in smallOnly }
             ).joinToString("   |   ")
         }
         Label(

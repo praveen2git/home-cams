@@ -18,7 +18,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import com.home.cams.sources.Brand
+import com.home.cams.sources.Cam
 import com.home.cams.sources.Layouts
+import com.home.cams.sources.Quality
 import com.home.cams.sources.Source
 import com.home.cams.sources.Wall
 import com.home.cams.sources.cams
@@ -42,6 +44,7 @@ private sealed interface Screen {
     data class Playback(val back: Screen) : Screen
     data object Settings : Screen
     data object Sources : Screen
+    data object Resolution : Screen
     data class Edit(val source: Source?) : Screen
 }
 
@@ -88,7 +91,7 @@ class MainActivity : ComponentActivity() {
         BackHandler(enabled = screen != Screen.Wall) {
             screen = when (val now = screen) {
                 is Screen.Playback -> now.back
-                Screen.Sources -> Screen.Settings
+                Screen.Sources, Screen.Resolution -> Screen.Settings
                 is Screen.Edit -> Screen.Sources
                 else -> Screen.Wall
             }
@@ -112,6 +115,7 @@ class MainActivity : ComponentActivity() {
                 screen = Screen.Playback(Screen.PlaybackList)
             }
             Screen.Settings -> SettingsScreen(app)
+            Screen.Resolution -> ResolutionScreen(app, cams)
             Screen.Sources -> SourcesScreen(app.store, app.onvif, onEdit = { screen = Screen.Edit(it) })
             is Screen.Edit -> EditSourceScreen(
                 s.source, app.onvif,
@@ -158,6 +162,27 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** One row per camera. OK steps through Auto, Large and Small. */
+    @Composable
+    private fun ResolutionScreen(app: HomeCamsApp, cams: List<Cam>) {
+        val first = remember { FocusRequester() }
+        LaunchedEffect(Unit) { if (cams.isNotEmpty()) first.requestFocus() }
+        Page("Camera resolution", "Large looks sharper but a cheap TV may not play many large tiles at once.") {
+            if (cams.isEmpty()) MenuRow("No cameras yet", "Add one in Sources") { screen = Screen.Sources }
+            cams.forEachIndexed { i, cam ->
+                MenuRow(cam.name, cam.quality.label, if (i == 0) Modifier.focusRequester(first) else Modifier) {
+                    val next = Quality.entries[(cam.quality.ordinal + 1) % Quality.entries.size]
+                    app.store.update { c ->
+                        c.copy(sources = c.sources.map {
+                            if (it.id != cam.source.id) it
+                            else it.copy(quality = if (next == Quality.AUTO) it.quality - cam.channel else it.quality + (cam.channel to next))
+                        })
+                    }
+                }
+            }
+        }
+    }
+
     @Composable
     private fun SettingsScreen(app: HomeCamsApp) {
         val config = app.store.config
@@ -168,6 +193,8 @@ class MainActivity : ComponentActivity() {
 
         Page("Settings", tab = Tab.SETTINGS, onTab = ::open) {
             MenuRow("Sources", "${config.sources.size} added", Modifier.focusRequester(first)) { screen = Screen.Sources }
+            val picked = config.sources.sumOf { it.quality.count { (_, q) -> q != Quality.AUTO } }
+            MenuRow("Camera resolution", if (picked == 0) "All on Auto" else "$picked set by hand") { screen = Screen.Resolution }
             MenuRow("Live tile cap", "${config.tileCap}   (lower it if tiles fail on this TV)") {
                 app.store.update { it.copy(tileCap = next(Layouts.ALL, it.tileCap)) }
             }

@@ -107,7 +107,7 @@ fun EditSourceScreen(initial: Source?, onvif: OnvifClient, onSave: (Source) -> U
             id = initial?.id ?: UUID.randomUUID().toString(),
             // An NVR named "Cam" shows its channels as "Cam 1", "Cam 2", ...
             name = name.ifBlank { if (brand.isNvr) "Cam" else "Camera" },
-            brand = brand, host = host, user = user, pass = pass
+            brand = brand, host = host, user = user, pass = pass, quality = initial?.quality.orEmpty()
         )
         when {
             brand == Brand.RTSP -> {
